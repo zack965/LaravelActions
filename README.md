@@ -1,66 +1,153 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Laravel action pattern 
+In this example, I created a simple Laravel application that allows creating a task using both a controller and a command. To make the task creation logic reusable, I encapsulated it within an action class, which can be easily utilized by both the controller and the command handler.
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## The model  and the migration
+```php
+<?php
 
-## About Laravel
+namespace App\Models;
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+class Task extends Model
+{
+    use HasFactory;
+    protected $fillable = ["title", "description"];
+}
+```
+```php
+<?php
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 
-## Learning Laravel
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('tasks', function (Blueprint $table) {
+            $table->id();
+            $table->string('title');
+            $table->text('description')->nullable();
+            $table->timestamps();
+        });
+    }
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('tasks');
+    }
+};
+```
+#### As you see the model is pretty simple
+### Let's see now the action class
+```php
+<?php
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+namespace App\Actions;
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+use App\Models\Task;
 
-## Laravel Sponsors
+class CreateTaskAction
+{
+    public function handle(array $data): Task
+    {
+        $task = Task::create([
+            'title' => $data["title"],
+            'description' => $data["description"],
+        ]);
+        /*
+        after the creation of the object , you can send notification , log it , etc........
+        */
+        return $task;
+    }
+}
+```
+#### You can adapt the action based on your needs 
+### How can you use this class in controller
+```php
+<?php
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+namespace App\Http\Controllers;
 
-### Premium Partners
+use App\Actions\CreateTaskAction;
+use App\Models\Task;
+use Illuminate\Http\Request;
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+class TaskController extends Controller
+{
+    //
+    public function createTask(Request $request, CreateTaskAction $createTaskAction)
+    {
+        $task = $createTaskAction->handle($request->only(["title", "description"]));
+        return response()->json($task, 201);
+    }
+}
+```
+### How can you use this class in the command 
+```php
+<?php
 
-## Contributing
+namespace App\Console\Commands;
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+use App\Actions\CreateTaskAction;
+use App\Models\Task;
+use Illuminate\Console\Command;
 
-## Code of Conduct
+class CreateTaskCommand extends Command
+{
+    /**
+     * The name and signature of the console command.
+     *
+     * @var string
+     */
+    protected $signature = 'app:create-task-command';
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+    /**
+     * The console command description.
+     *
+     * @var string
+     */
+    protected $description = 'Create Task';
 
-## Security Vulnerabilities
+    protected CreateTaskAction $createTaskAction;
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+    public function __construct(CreateTaskAction $createTaskAction)
+    {
+        parent::__construct();
+        $this->createTaskAction = $createTaskAction;
+    }
 
-## License
+    /**
+     * Execute the console command.
+     */
+    public function handle()
+    {
+        //
+        // Ask for the task title
+        $title = $this->ask('Enter the task title');
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+        // Ask for the task description
+        $description = $this->ask('Enter the task description');
+
+        // Create a new task
+        $task = $this->createTaskAction->handle([
+            'title' => $title,
+            'description' => $description,
+        ]);
+
+        // Output a success message
+        $this->info('Task created successfully with ID: ' . $task->id);
+    }
+}
+```
+#### in this example we did encapulate the logic of creation of a task inside a class action and we did reuse it inside the controller and the command line
+#### You can adapt this example to your own needs
